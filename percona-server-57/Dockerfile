@@ -1,8 +1,10 @@
-FROM almalinux:minimal
+FROM almalinux:8-minimal
 
 ARG PS_VERSION
 ARG OS_VER=el8
 ARG FULL_PERCONA_VERSION="$PS_VERSION.$OS_VER"
+
+COPY ps-entry.sh /docker-entrypoint.sh
 
 RUN set -ex; \
     # shadow-utils are needed for user/group manipulation on UBI-based images
@@ -17,7 +19,7 @@ RUN set -ex; \
     gpg --batch --export --armor 99DB70FAE1D7CE227FB6488205B555B38483C65D > ${GNUPGHOME}/RPM-GPG-KEY-centosofficial; \
     rpmkeys --import ${GNUPGHOME}/RPM-GPG-KEY-Percona ${GNUPGHOME}/RPM-GPG-KEY-centosofficial; \
     microdnf install -y findutils; \
-    curl -Lf -o /tmp/percona-release.rpm https://repo.percona.com/yum/percona-release-latest.noarch.rpm; \
+    curl -sSL -o /tmp/percona-release.rpm https://repo.percona.com/yum/percona-release-latest.noarch.rpm; \
     rpmkeys --checksig /tmp/percona-release.rpm; \
     rpm -i /tmp/percona-release.rpm; \
     percona-release setup ps57; \
@@ -63,13 +65,13 @@ RUN set -ex; \
     ln -s /etc/my.cnf.d /etc/mysql; \
     # allow to change config files
     chown -R mysql:root /etc/percona-server.cnf /etc/percona-server.conf.d /etc/my.cnf.d; \
-    chmod -R ug+rwX /etc/percona-server.cnf /etc/percona-server.conf.d /etc/my.cnf.d
+    chmod -R ug+rwX /etc/percona-server.cnf /etc/percona-server.conf.d /etc/my.cnf.d; \
+    chmod +x /docker-entrypoint.sh
 
 VOLUME ["/var/lib/mysql", "/var/log/mysql"]
 
-COPY ps-entry.sh /docker-entrypoint.sh
-ENTRYPOINT ["/docker-entrypoint.sh"]
-
 USER mysql
 EXPOSE 3306
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["mysqld"]

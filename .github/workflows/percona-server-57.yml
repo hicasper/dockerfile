@@ -10,7 +10,7 @@ on:
 
 jobs:
   build_images:
-    name: Build Multi-platform Images
+    name: Build Image
     runs-on: ubuntu-latest
     steps:
       -

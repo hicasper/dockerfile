@@ -1,8 +1,8 @@
-FROM almalinux:8-minimal
+FROM redhat/ubi8-minimal
 
-ENV PS_VERSION 5.7.44-48.1
-ENV OS_VER el8
-ENV FULL_PERCONA_VERSION "$PS_VERSION.$OS_VER"
+ENV PS_VERSION=5.7.44-48.1
+ENV OS_VER=el8
+ENV FULL_PERCONA_VERSION="$PS_VERSION.$OS_VER"
 
 # Do not report during Docker image creation.
 # Note that doing so, would create telemetry config file
@@ -14,7 +14,7 @@ ARG PERCONA_TELEMETRY_DISABLE=1
 COPY ps-entry.sh /docker-entrypoint.sh
 RUN set -ex; \
     # shadow-utils are needed for user/group manipulation on UBI-based images
-    microdnf -y update; \
+    # microdnf -y update; \
     microdnf -y install shadow-utils; \
     groupadd -g 1001 mysql; \
     useradd -u 1001 -r -g 1001 -s /sbin/nologin \

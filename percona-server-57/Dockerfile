@@ -31,7 +31,7 @@ RUN set -ex; \
     percona-release enable-only ps-57; \
     rm -rf "$GNUPGHOME" /tmp/percona-release.rpm; \
     rpm --import /etc/pki/rpm-gpg/PERCONA-PACKAGING-KEY; \
-    microdnf -y module disable mysql; \
+    # microdnf -y module disable mysql; \
     # curl -Lf -o /tmp/numactl-libs.rpm http://vault.centos.org/centos/8/BaseOS/x86_64/os/Packages/numactl-libs-2.0.12-13.el8.x86_64.rpm; \
     # rpmkeys --checksig /tmp/numactl-libs.rpm; \
     # rpm -i /tmp/numactl-libs.rpm; \

@@ -1,4 +1,4 @@
-FROM redhat/ubi8-minimal
+FROM almalinux:8-minimal
 
 ENV PS_VERSION 5.7.44-48.1
 ENV OS_VER el8

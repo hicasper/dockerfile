@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim as builder
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -75,6 +75,10 @@ RUN chmod +x /etc/s6-overlay/s6-rc.d/init-config/init-config.sh && \
 # recreate access.log and error.log
 RUN cat /dev/null > /var/log/nginx/access.log && \
     cat /dev/null > /var/log/nginx/error.log
+
+FROM scratch
+
+COPY --from=builder / /
 
 EXPOSE 80 443
 

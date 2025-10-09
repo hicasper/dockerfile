@@ -3,7 +3,7 @@ FROM debian:bookworm-slim as builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG TARGETVARIANT
-ARG S6_OVERLAY_VERSION=3.2.0.2
+ARG S6_OVERLAY_VERSION=3.2.0.3
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -79,6 +79,8 @@ RUN cat /dev/null > /var/log/nginx/access.log && \
 FROM scratch
 
 COPY --from=builder / /
+
+ENV NGINX_UI_WORKING_DIR=/var/run/
 
 EXPOSE 80 443
 

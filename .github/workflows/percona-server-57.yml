@@ -30,11 +30,15 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       -
         name: Build and push
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v6
         with:
           push: true
           context: ./percona-server-57/
           build-args: |
             PS_VERSION=${{ github.event.inputs.version }}
           platforms: linux/amd64
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/percona-server:5.7, ${{ secrets.DOCKERHUB_USERNAME }}/percona-server:${{ github.event.inputs.version }}
+          tags: >-
+            ${{ secrets.DOCKERHUB_USERNAME }}/percona-server:5.7,
+            ${{ secrets.DOCKERHUB_USERNAME }}/percona-server:${{ github.event.inputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

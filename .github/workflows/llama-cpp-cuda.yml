@@ -1,11 +1,11 @@
-name: Build latest llama.cpp with CUDA 11 docker image
+name: Build latest llama.cpp with CUDA docker image
 
 on:
   workflow_dispatch:
 
 env:
   platforms: linux/arm64
-  image: ${{ secrets.DOCKERHUB_USERNAME }}/llama-cpp-cuda11
+  image: ${{ secrets.DOCKERHUB_USERNAME }}/llama-cpp-cuda
 
 jobs:
   build-and-publish:
@@ -24,7 +24,7 @@ jobs:
       #    docker-images: true
       #    swap-storage: true
 
-      - name: Get latest release tag
+      - name: Get Release Info
         id: get-version
         run: |
           LATEST_RELEASE=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | jq -r '.tag_name')
@@ -34,6 +34,7 @@ jobs:
           fi
           echo "Latest llama.cpp release: $LATEST_RELEASE"
           echo "GITTAG=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+          echo "BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_OUTPUT
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -63,6 +64,11 @@ jobs:
           context: .
           file: .devops/cuda.Dockerfile
           target: server
+          build-args: |
+            BUILD_DATE=${{ steps.get-version.outputs.BUILD_DATE }}
+            APP_VERSION=${{ steps.get-version.outputs.GITTAG }}
+            APP_REVISION=${{ steps.checkout.outputs.commit }}
+
           platforms: ${{ env.platforms }}
           push: true
           tags: >-

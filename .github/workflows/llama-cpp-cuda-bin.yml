@@ -11,6 +11,11 @@ on:
         required: false
         type: boolean
         default: false
+      extra_build_args:
+        description: 'Extra args for compiler'
+        default: ''
+        required: false
+        type: string
 
 jobs:
   check-release:
@@ -127,6 +132,8 @@ jobs:
               apt-get install -y --no-install-recommends git cmake- curl ninja-build build-essential libssl-dev ca-certificates
               curl -fsSL -o /tmp/cmake.sh https://cmake.org/files/v3.25/cmake-3.25.3-linux-aarch64.sh
               chmod +x /tmp/cmake.sh && /tmp/cmake.sh --prefix=/usr/local --skip-license
+              ln -s /etc/ssl/certs/ca-certificates.crt /etc/ssl/cert.pem
+              export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
               apt-get clean
               rm -rf /var/lib/apt/lists/*
 
@@ -138,21 +145,23 @@ jobs:
 
               echo '=== Configuring build with Ninja ==='
               export LIBRARY_PATH="/usr/local/cuda/lib64/stubs${LIBRARY_PATH:+:$LIBRARY_PATH}"
-
               ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1
+
+              # Available extra args: -DGGML_CUDA_FORCE_CUBLAS=ON -DGGML_CUDA_NCCL=OFF -DGGML_CUDA_FA_ALL_QUANTS=ON
               cmake -B build -S . \
                 -G Ninja \
                 -DGGML_CUDA=ON \
                 -DCMAKE_CUDA_ARCHITECTURES='${{ matrix.architectures }}' \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DBUILD_SHARED_LIBS=ON \
+                -DGGML_NATIVE=OFF \
                 -DLLAMA_OPENSSL=OFF \
                 -DLLAMA_BUILD_LIBRESSL=ON \
-                -DGGML_NATIVE=OFF \
                 -DLLAMA_BUILD_TESTS=OFF \
                 -DLLAMA_BUILD_EXAMPLES=OFF \
                 -DCMAKE_EXE_LINKER_FLAGS='-Wl,-rpath-link,/usr/local/cuda/lib64/stubs' \
-                -DCMAKE_SHARED_LINKER_FLAGS='-Wl,-rpath-link,/usr/local/cuda/lib64/stubs'
+                -DCMAKE_SHARED_LINKER_FLAGS='-Wl,-rpath-link,/usr/local/cuda/lib64/stubs' \
+                ${{ github.event.inputs.extra_build_args }}
 
               echo '=== Building with Ninja (parallel: all cores) ==='
               cmake --build build --config Release -j\$(nproc)
@@ -182,7 +191,7 @@ jobs:
             "
 
           # Remove Docker image to free space
-          docker rmi nvidia/cuda:${{ matrix.cuda_tag }} || true
+          # docker rmi nvidia/cuda:${{ matrix.cuda_tag }} || true
 
           # Fix permissions for files created by root in container
           sudo chown -R $(id -u):$(id -g) $PWD

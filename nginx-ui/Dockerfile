@@ -3,7 +3,7 @@ FROM debian:bookworm-slim as builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG TARGETVARIANT
-ARG S6_OVERLAY_VERSION=3.2.0.3
+ARG S6_OVERLAY_VERSION=3.2.1.0
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -38,6 +38,7 @@ RUN case "${TARGETARCH}/${TARGETVARIANT}" in \
         "arm/v7"*) NGXUI_ARCH="linux-arm32-v7a" ;; \
         "arm/v6"*) NGXUI_ARCH="linux-arm32-v6" ;; \
         "arm/v5"*) NGXUI_ARCH="linux-arm32-v5" ;; \
+        "riscv64/"*) NGXUI_ARCH="riscv64" ;; \
         *) echo "Unsupported arch: ${TARGETARCH}/${TARGETVARIANT}" && exit 1 ;; \
     esac && \
     curl -fsSL -o /tmp/nginx-ui.tar.gz https://github.com/0xJacky/nginx-ui/releases/latest/download/nginx-ui-${NGXUI_ARCH}.tar.gz && \
@@ -50,12 +51,14 @@ RUN case "${TARGETARCH}/${TARGETVARIANT}" in \
         "arm/v7"*) S6_ARCH="arm" ;; \
         "arm/v6"*) S6_ARCH="arm" ;; \
         "arm/v5"*) S6_ARCH="arm" ;; \
+        "riscv64/"*) S6_ARCH="riscv64" ;; \
         *) echo "Unsupported arch: ${TARGETARCH}/${TARGETVARIANT}" && exit 1 ;; \
     esac && \
+    wget -O /tmp/s6-overlay-noarch.tar.xz https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz && \
+    tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz && \
     wget -O /tmp/s6-overlay-${S6_ARCH}.tar.xz https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${S6_ARCH}.tar.xz && \
     tar -C / -Jxpf /tmp/s6-overlay-${S6_ARCH}.tar.xz && \
-    wget -O /tmp/s6-overlay-noarch.tar.xz https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz && \
-    tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz
+    rm -f /tmp/s6-overlay-noarch.tar.xz /tmp/s6-overlay-${S6_ARCH}.tar.xz
 
 # register service
 COPY nginx /etc/s6-overlay/s6-rc.d/nginx/run

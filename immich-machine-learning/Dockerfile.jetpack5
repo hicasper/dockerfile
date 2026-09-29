@@ -1,0 +1,109 @@
+ARG DEVICE=cuda
+
+# ==================== Build Stage ====================
+FROM nvcr.io/nvidia/l4t-base:35.4.1 AS builder
+
+ARG DEVICE
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_PYTHON_INSTALL_DIR=/opt/python \
+    VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:$PATH"
+
+# Install build dependencies and upgraded libstdc++ from toolchain PPA
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    software-properties-common \
+    ca-certificates \
+    wget \
+    build-essential && \
+    add-apt-repository -y ppa:ubuntu-toolchain-r/test && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    g++-11 \
+    libcudnn8-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install uv package manager
+COPY --from=ghcr.io/astral-sh/uv:latest@sha256:4faec156e35a5f345d57804d8858c6ba1cf6352ce5f4bffc11b7fdebdef46a38 /uv /uvx /bin/
+
+# Install standalone Python 3.11 via uv and create virtual environment
+RUN uv python install 3.11 && \
+    uv venv /opt/venv --python 3.11
+
+# Sync project dependencies
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --extra ${DEVICE} --no-dev --no-editable --no-install-project --compile-bytecode --no-progress --active --link-mode copy
+
+# Install Jetson prebuilt onnxruntime-gpu wheel and pin numpy<2 for ABI compatibility
+RUN wget -q -O /tmp/onnxruntime_gpu-1.18.0-cp311-cp311-linux_aarch64.whl \
+    https://nvidia.box.com/shared/static/n6wf6n6vwydgts0ivf7h2479vhghxt02.whl && \
+    uv pip install --python /opt/venv /tmp/onnxruntime_gpu-1.18.0-cp311-cp311-linux_aarch64.whl "numpy<2" && \
+    rm /tmp/onnxruntime_gpu-1.18.0-cp311-cp311-linux_aarch64.whl
+
+
+# ==================== Runtime Stage ====================
+FROM nvcr.io/nvidia/l4t-cuda:11.4.19-runtime
+
+ENV LD_LIBRARY_PATH=/usr/local/cuda-11/compat:$LD_LIBRARY_PATH \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    PYTHONPATH=/usr/src \
+    DEVICE=${DEVICE} \
+    VIRTUAL_ENV=/opt/venv \
+    UV_PYTHON_INSTALL_DIR=/opt/python \
+    MACHINE_LEARNING_CACHE_FOLDER=/cache \
+    MACHINE_LEARNING_MODEL_INTRA_OP_THREADS=2 \
+    MACHINE_LEARNING_MODEL_INTER_OP_THREADS=1 \
+    OMP_NUM_THREADS=2
+
+# Install runtime dependencies including libstdc++6, libcudnn8, and tini
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends software-properties-common ca-certificates && \
+    add-apt-repository -y ppa:ubuntu-toolchain-r/test && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    g++-11 \
+    libcudnn8-dev \
+    tini && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy standalone Python interpreter and virtualenv from builder
+COPY --from=builder /opt/python /opt/python
+COPY --from=builder /opt/venv /opt/venv
+
+# Link Python binaries into global path
+RUN ln -sf /opt/venv/bin/python /usr/local/bin/python && \
+    ln -sf /opt/venv/bin/python3 /usr/local/bin/python3
+
+# System crash dump limits
+RUN echo "hard core 0" >> /etc/security/limits.conf && \
+    echo "fs.suid_dumpable 0" >> /etc/sysctl.conf && \
+    echo 'ulimit -S -c 0 > /dev/null 2>&1' >> /etc/profile
+
+WORKDIR /usr/src
+COPY scripts/healthcheck.py .
+COPY immich_ml immich_ml
+
+ARG BUILD_ID
+ARG BUILD_IMAGE
+ARG BUILD_SOURCE_REF
+ARG BUILD_SOURCE_COMMIT
+
+ENV IMMICH_BUILD=${BUILD_ID} \
+    IMMICH_BUILD_URL=https://github.com/immich-app/immich/actions/runs/${BUILD_ID} \
+    IMMICH_BUILD_IMAGE=${BUILD_IMAGE} \
+    IMMICH_BUILD_IMAGE_URL=https://github.com/immich-app/immich/pkgs/container/immich-machine-learning \
+    IMMICH_REPOSITORY=immich-app/immich \
+    IMMICH_REPOSITORY_URL=https://github.com/immich-app/immich \
+    IMMICH_SOURCE_REF=${BUILD_SOURCE_REF} \
+    IMMICH_SOURCE_COMMIT=${BUILD_SOURCE_COMMIT} \
+    IMMICH_SOURCE_URL=https://github.com/immich-app/immich/commit/${BUILD_SOURCE_COMMIT}
+
+ENTRYPOINT ["tini", "--"]
+CMD ["python", "-m", "immich_ml"]
+
+HEALTHCHECK CMD python3 healthcheck.py

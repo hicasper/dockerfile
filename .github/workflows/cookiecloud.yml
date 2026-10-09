@@ -1,7 +1,6 @@
 name: Build CookieCloud Docker Image
 
 on:
-  push:
   schedule:
     - cron: "3 7 */15 * *"
   workflow_dispatch:

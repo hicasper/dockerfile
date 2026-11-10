@@ -158,14 +158,34 @@ jobs:
           echo "=== After Cleanup ==="
           df -h
 
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ matrix.arch.suffix }}-cuda-${{ matrix.cuda_version_short }}-sm${{ matrix.architectures }}-${{ needs.check-release.outputs.release_tag }}
+          restore-keys: |
+            ccache-${{ matrix.arch.suffix }}-cuda-${{ matrix.cuda_version_short }}-sm${{ matrix.architectures }}-
+
+      - name: Restore OpenSSL cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/openssl
+          key: openssl-3.0-${{ matrix.arch.suffix }}-ubuntu20.04
+
       - name: Build llama.cpp with CUDA
         run: |
           # Pull Docker image
           docker pull nvidia/cuda:${{ matrix.cuda_tag }}
+          
+          mkdir -p "$HOME/.cache/ccache"
+          mkdir -p "$HOME/.cache/openssl"
 
           # Run build in container
           docker run --rm \
             -v $PWD:/workspace \
+            -v $HOME/.cache/ccache:/ccache \
+            -v $HOME/.cache/openssl:/usr/local/openssl \
+            -e CCACHE_DIR=/ccache \
             nvidia/cuda:${{ matrix.cuda_tag }} \
             bash -c "
               set -e
@@ -173,16 +193,30 @@ jobs:
 
               echo '=== Installing minimal dependencies ==='
               apt-get update -qq
-              apt-get install -y --no-install-recommends git cmake- curl ninja-build build-essential ca-certificates perl
+              apt-get install -y --no-install-recommends git cmake- curl ninja-build build-essential ccache ca-certificates perl
               curl -fsSL -o /tmp/cmake.sh https://cmake.org/files/v3.25/cmake-3.25.3-linux-aarch64.sh
               chmod +x /tmp/cmake.sh && /tmp/cmake.sh --prefix=/usr/local --skip-license
-              curl -fsSL -o /tmp/openssl3.tar.gz https://github.com/openssl/openssl/releases/download/openssl-3.0.22/openssl-3.0.22.tar.gz
-              mkdir openssl3
-              tar -xzf /tmp/openssl3.tar.gz -C ./openssl3 --strip-components=1
-              cd openssl3
-              ./config --prefix=/usr/local/openssl --openssldir=/usr/local/openssl -fPIC no-shared no-deprecated && make -j$(nproc) && make install_sw
+              
+              echo '=== Checking OpenSSL cache ==='
+
+              if { [ -f /usr/local/openssl/lib/libssl.a ] && [ -f /usr/local/openssl/lib/libcrypto.a ]; } || \
+                 { [ -f /usr/local/openssl/lib64/libssl.a ] && [ -f /usr/local/openssl/lib64/libcrypto.a ]; };
+              then
+                echo '=== OpenSSL cache hit, skipping build ==='
+              else
+                echo '=== OpenSSL cache miss, building OpenSSL 3.0.22 ==='
+                rm -rf /usr/local/openssl/*
+                curl -fsSL -o /tmp/openssl3.tar.gz https://github.com/openssl/openssl/releases/download/openssl-3.0.22/openssl-3.0.22.tar.gz
+                mkdir openssl3
+                tar -xzf /tmp/openssl3.tar.gz -C ./openssl3 --strip-components=1
+                cd openssl3
+                ./config --prefix=/usr/local/openssl --openssldir=/usr/local/openssl -fPIC no-shared no-deprecated && make -j\$(nproc) && make install_sw
+                cd /workspace
+              fi
+
+              echo '=== OpenSSL installation ==='
+              /usr/local/openssl/bin/openssl version
               echo "/usr/local/openssl/lib64" | tee /etc/ld.so.conf.d/openssl3.conf && ldconfig
-              cd ..
 
               apt-get clean
               rm -rf /var/lib/apt/lists/*
@@ -197,6 +231,11 @@ jobs:
               echo 'Extra args: ${{ github.event.inputs.extra_build_args }}'
               export LIBRARY_PATH="/usr/local/cuda/lib64/stubs${LIBRARY_PATH:+:$LIBRARY_PATH}"
               ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1
+
+              echo '=== Configuring ccache ==='
+              ccache --zero-stats
+              ccache --max-size=3G
+              ccache --show-config
 
               # Available extra args: -DGGML_CUDA_FORCE_CUBLAS=ON
               cmake -B build -S . \
@@ -215,10 +254,16 @@ jobs:
                 -DOPENSSL_USE_STATIC_LIBS=TRUE \
                 -DCMAKE_EXE_LINKER_FLAGS='-Wl,-rpath-link,/usr/local/cuda/lib64/stubs' \
                 -DCMAKE_SHARED_LINKER_FLAGS='-Wl,-rpath-link,/usr/local/cuda/lib64/stubs' \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
                 ${{ github.event.inputs.extra_build_args }}
 
               echo '=== Building with Ninja (parallel: all cores) ==='
               cmake --build build --config Release -j\$(nproc)
+
+              echo '=== ccache statistics ==='
+              ccache --show-stats
 
               echo '=== Copying binaries ==='
               cd /workspace
@@ -250,6 +295,8 @@ jobs:
 
           # Fix permissions for files created by root in container
           sudo chown -R $(id -u):$(id -g) $PWD
+          sudo chown -R $(id -u):$(id -g) $HOME/.cache/ccache
+          sudo chown -R $(id -u):$(id -g) $HOME/.cache/openssl
 
           echo "=== Final disk usage ==="
           df -h
@@ -261,7 +308,7 @@ jobs:
           ls -lh *.tar.gz
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           # Arch suffix in the artifact name so the matrix jobs do not collide
           # in actions/download-artifact later.

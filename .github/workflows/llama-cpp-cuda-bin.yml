@@ -6,6 +6,11 @@ on:
   #  - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
+      release_tag:
+        description: 'llama.cpp tag to build (leave empty for latest release)'
+        required: false
+        type: string
+        default: ''
       force_build:
         description: 'Force build even if no new release'
         required: false
@@ -25,37 +30,76 @@ jobs:
       release_tag: ${{ steps.check.outputs.release_tag }}
       release_hash: ${{ steps.check.outputs.release_hash }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Check for new llama.cpp release
-        id: check
-        run: |
-          # Get latest release from llama.cpp
-          LATEST_RELEASE=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | jq -r '.tag_name')
-          RELEASE_HASH=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | jq -r '.target_commitish')
-
+    - name: Check for llama.cpp release
+      id: check
+      env:
+        REQUESTED_TAG: ${{ inputs.release_tag }}
+        FORCE_BUILD: ${{ inputs.force_build }}
+      run: |
+        set -e
+    
+        if [ -n "$REQUESTED_TAG" ]; then
+          echo "Manual tag requested: $REQUESTED_TAG"
+    
+          # Verify that the requested tag exists upstream
+          if ! git ls-remote \
+            --exit-code \
+            --tags \
+            https://github.com/ggml-org/llama.cpp.git \
+            "refs/tags/$REQUESTED_TAG" >/dev/null; then
+            echo "ERROR: Tag '$REQUESTED_TAG' does not exist in llama.cpp"
+            exit 1
+          fi
+    
+          LATEST_RELEASE="$REQUESTED_TAG"
+    
+          # Resolve tag to upstream commit
+          RELEASE_HASH=$(git ls-remote \
+            https://github.com/ggml-org/llama.cpp.git \
+            "refs/tags/$LATEST_RELEASE^{}" |
+            awk '{print $1}')
+    
+          # Lightweight tags don't have ^{}
+          if [ -z "$RELEASE_HASH" ]; then
+            RELEASE_HASH=$(git ls-remote \
+              https://github.com/ggml-org/llama.cpp.git \
+              "refs/tags/$LATEST_RELEASE" |
+              awk '{print $1}')
+          fi
+    
+          echo "Building manually requested tag: $LATEST_RELEASE"
+          echo "Release hash: $RELEASE_HASH"
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+    
+        else
+          echo "No manual tag specified, checking latest GitHub release"
+    
+          RELEASE_JSON=$(curl -fsSL \
+            https://api.github.com/repos/ggml-org/llama.cpp/releases/latest)
+    
+          LATEST_RELEASE=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
+          RELEASE_HASH=$(echo "$RELEASE_JSON" | jq -r '.target_commitish')
+    
           echo "Latest llama.cpp release: $LATEST_RELEASE"
           echo "Release hash: $RELEASE_HASH"
-
-          # Check if we've already built this release
-          if git tag | grep -q "^${LATEST_RELEASE}$"; then
+    
+          if git tag | grep -Fxq "$LATEST_RELEASE"; then
             echo "Release $LATEST_RELEASE already built"
-            if [ "${{ github.event.inputs.force_build }}" = "true" ]; then
+    
+            if [ "$FORCE_BUILD" = "true" ]; then
               echo "Force build enabled, building anyway"
-              echo "should_build=true" >> $GITHUB_OUTPUT
+              echo "should_build=true" >> "$GITHUB_OUTPUT"
             else
-              echo "should_build=false" >> $GITHUB_OUTPUT
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
             fi
           else
             echo "New release detected: $LATEST_RELEASE"
-            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
           fi
-
-          echo "release_tag=$LATEST_RELEASE" >> $GITHUB_OUTPUT
-          echo "release_hash=$RELEASE_HASH" >> $GITHUB_OUTPUT
+        fi
+    
+        echo "release_tag=$LATEST_RELEASE" >> "$GITHUB_OUTPUT"
+        echo "release_hash=$RELEASE_HASH" >> "$GITHUB_OUTPUT"
 
   build:
     needs: check-release
@@ -154,7 +198,7 @@ jobs:
               export LIBRARY_PATH="/usr/local/cuda/lib64/stubs${LIBRARY_PATH:+:$LIBRARY_PATH}"
               ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1
 
-              # Available extra args: -DGGML_CUDA_FORCE_CUBLAS=ON -DGGML_CUDA_FA_ALL_QUANTS=ON
+              # Available extra args: -DGGML_CUDA_FORCE_CUBLAS=ON
               cmake -B build -S . \
                 -G Ninja \
                 -DGGML_CUDA=ON \
@@ -163,6 +207,7 @@ jobs:
                 -DBUILD_SHARED_LIBS=ON \
                 -DGGML_NATIVE=OFF \
                 -DGGML_CUDA_NCCL=OFF \
+                -DGGML_CUDA_FA_ALL_QUANTS=ON \
                 -DLLAMA_BUILD_TESTS=OFF \
                 -DLLAMA_BUILD_EXAMPLES=OFF \
                 -DOPENSSL_ROOT_DIR=/usr/local/openssl \

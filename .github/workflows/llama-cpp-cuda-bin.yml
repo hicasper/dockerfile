@@ -64,16 +64,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cuda_version: ['11.4.3']
+        cuda_version: ['12.2.2']
         arch:
           # Native runners — no QEMU. nvidia/cuda:*-cudnn-devel-ubuntu22.04 is
           # multi-arch on Docker Hub so the same build path runs on both.
           # - { suffix: amd64, runs_on: ubuntu-latest }
           - { suffix: arm64, runs_on: ubuntu-22.04-arm }
         include:
-          - cuda_version: '11.4.3'
-            cuda_version_short: '11.4'
-            cuda_tag: '11.4.3-devel-ubuntu20.04'
+          - cuda_version: '12.2.2'
+            cuda_version_short: '12.2'
+            cuda_tag: '12.2.2-devel-ubuntu20.04'
             # CUDA compute capabilities target the runtime GPU, not the host
             # CPU arch, so the same list applies to both amd64 and arm64
             # builds. Relevant aarch64 GPU contexts (Grace Hopper, Grace
@@ -132,9 +132,9 @@ jobs:
               apt-get install -y --no-install-recommends git cmake- curl ninja-build build-essential ca-certificates perl
               curl -fsSL -o /tmp/cmake.sh https://cmake.org/files/v3.25/cmake-3.25.3-linux-aarch64.sh
               chmod +x /tmp/cmake.sh && /tmp/cmake.sh --prefix=/usr/local --skip-license
-              curl -fsSL -o /tmp/openssl-3.0.21.tar.gz https://github.com/openssl/openssl/releases/download/openssl-3.0.21/openssl-3.0.21.tar.gz
+              curl -fsSL -o /tmp/openssl3.tar.gz https://github.com/openssl/openssl/releases/download/openssl-3.0.22/openssl-3.0.22.tar.gz
               mkdir openssl3
-              tar -xzf /tmp/openssl-3.0.21.tar.gz -C ./openssl3 --strip-components=1
+              tar -xzf /tmp/openssl3.tar.gz -C ./openssl3 --strip-components=1
               cd openssl3
               ./config --prefix=/usr/local/openssl --openssldir=/usr/local/openssl -fPIC no-shared no-deprecated && make -j$(nproc) && make install_sw
               echo "/usr/local/openssl/lib64" | tee /etc/ld.so.conf.d/openssl3.conf && ldconfig
@@ -150,10 +150,11 @@ jobs:
               cd llama.cpp
 
               echo '=== Configuring build with Ninja ==='
+              echo 'Extra args: ${{ github.event.inputs.extra_build_args }}'
               export LIBRARY_PATH="/usr/local/cuda/lib64/stubs${LIBRARY_PATH:+:$LIBRARY_PATH}"
               ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1
 
-              # Available extra args: -DGGML_CUDA_FORCE_CUBLAS=ON -DGGML_CUDA_NCCL=OFF -DGGML_CUDA_FA_ALL_QUANTS=ON
+              # Available extra args: -DGGML_CUDA_FORCE_CUBLAS=ON -DGGML_CUDA_FA_ALL_QUANTS=ON
               cmake -B build -S . \
                 -G Ninja \
                 -DGGML_CUDA=ON \
@@ -161,6 +162,7 @@ jobs:
                 -DCMAKE_BUILD_TYPE=Release \
                 -DBUILD_SHARED_LIBS=ON \
                 -DGGML_NATIVE=OFF \
+                -DGGML_CUDA_NCCL=OFF \
                 -DLLAMA_BUILD_TESTS=OFF \
                 -DLLAMA_BUILD_EXAMPLES=OFF \
                 -DOPENSSL_ROOT_DIR=/usr/local/openssl \

@@ -208,6 +208,7 @@ jobs:
                 -DGGML_NATIVE=OFF \
                 -DGGML_CUDA_NCCL=OFF \
                 -DGGML_CUDA_FA_ALL_QUANTS=ON \
+                -DGGML_CUDA_FA_QUANTS=all \
                 -DLLAMA_BUILD_TESTS=OFF \
                 -DLLAMA_BUILD_EXAMPLES=OFF \
                 -DOPENSSL_ROOT_DIR=/usr/local/openssl \
@@ -235,6 +236,7 @@ jobs:
               echo 'Architectures: ${{ matrix.architectures }}' >> binaries/cuda-${{ matrix.cuda_version_short }}/VERSION.txt
               echo 'Build date: '$(date -u +%Y-%m-%d) >> binaries/cuda-${{ matrix.cuda_version_short }}/VERSION.txt
               echo 'Build hash: ${{ needs.check-release.outputs.release_hash }}' >> binaries/cuda-${{ matrix.cuda_version_short }}/VERSION.txt
+              echo 'Build extra args: ${{ github.event.inputs.extra_build_args }}' >> binaries/cuda-${{ matrix.cuda_version_short }}/VERSION.txt
 
               echo '=== Build complete ==='
               ls -lh binaries/cuda-${{ matrix.cuda_version_short }}/
@@ -265,6 +267,7 @@ jobs:
           # in actions/download-artifact later.
           name: llama.cpp-cuda-${{ matrix.cuda_version_short }}-${{ matrix.arch.suffix }}
           path: binaries/*.tar.gz
+          archive: false
           #retention-days: 1
 
   #release:
